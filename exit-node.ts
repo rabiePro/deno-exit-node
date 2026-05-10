@@ -43,7 +43,6 @@
 
 const PSK = "mySuperSecretPassword123!";
 
-// This is the entrypoint Deno Deploy requires
 Deno.serve(async (req: Request) => {
   // 1. Only accept POST requests
   if (req.method !== "POST") {
@@ -53,18 +52,7 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // 2. Check authentication
-  const authHeader = req.headers.get("x-upstream-auth") || 
-                     req.headers.get("authorization");
-  
-  if (authHeader !== PSK) {
-    return new Response(
-      JSON.stringify({ error: "unauthorized" }),
-      { status: 401, headers: { "content-type": "application/json" } }
-    );
-  }
-
-  // 3. Parse the request
+  // 2. Parse body once (for auth and data)
   let body;
   try {
     body = await req.json();
@@ -75,9 +63,22 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  // 3. Check authentication - try headers OR body.k
+  const authHeader = req.headers.get("x-upstream-auth") || 
+                     req.headers.get("authorization");
+  const authKey = authHeader || body?.k;
+  
+  if (authKey !== PSK) {
+    return new Response(
+      JSON.stringify({ error: "unauthorized" }),
+      { status: 401, headers: { "content-type": "application/json" } }
+    );
+  }
+
+  // 4. Get request details
   const { u: url, m: method = "GET", h: headers = {}, b: bodyData } = body;
 
-  // 4. Validate URL
+  // 5. Validate URL
   if (!url || !url.startsWith("http")) {
     return new Response(
       JSON.stringify({ error: "invalid_url" }),
@@ -85,7 +86,7 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // 5. Forward the request to the target website
+  // 6. Forward the request
   try {
     const fetchOptions: RequestInit = {
       method: method.toUpperCase(),
@@ -99,7 +100,6 @@ Deno.serve(async (req: Request) => {
     const response = await fetch(url, fetchOptions);
     const responseBody = await response.text();
 
-    // 6. Return the response
     return new Response(responseBody, {
       status: response.status,
       headers: {
